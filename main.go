@@ -3,19 +3,20 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/urfave/cli"
 	"go/ast"
 	"go/format"
 	"go/parser"
 	"go/token"
-	"golang.org/x/tools/go/ast/astutil"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-)
 
+	"github.com/urfave/cli"
+	"golang.org/x/tools/go/ast/astutil"
+)
 
 func identName(n ast.Expr) string {
 	if x, ok := n.(*ast.Ident); ok && x != nil {
@@ -27,7 +28,8 @@ func identName(n ast.Expr) string {
 func (f *fixer) applyFunc(c *astutil.Cursor) bool {
 	switch n := c.Node().(type) {
 	case *ast.SelectorExpr:
-		if p, ok := c.Parent().(*ast.StarExpr); ok && p != nil {
+		switch c.Parent().(type) {
+		case *ast.StarExpr, *ast.Field:
 			if ok, target := f.isReplaceTarget(n); ok {
 				f.needsAdd = true
 				c.Replace(&target)
@@ -63,9 +65,9 @@ func (f *fixer) applyFunc(c *astutil.Cursor) bool {
 
 type fixer struct {
 	importLine string
-	pkg      string
-	repls []replData
-	needsAdd bool
+	pkg        string
+	repls      []replData
+	needsAdd   bool
 }
 
 func (f fixer) Fix(fset *token.FileSet, tree *ast.File) *ast.File {
@@ -89,8 +91,8 @@ func (f fixer) isReplaceTarget(n interface{}) (bool, ast.SelectorExpr) {
 }
 
 type replData struct {
-	from     string
-	to ast.SelectorExpr
+	from string
+	to   ast.SelectorExpr
 }
 
 func (r replData) isReplaceTarget(pkg string, n interface{}) bool {
@@ -103,8 +105,14 @@ func (r replData) isReplaceTarget(pkg string, n interface{}) bool {
 	case *ast.SelectorExpr:
 		pkg = identName(n.X)
 		ident = n.Sel.Name
+	default:
+		return false
 	}
 	return r.from == fmt.Sprintf("%s.%s", pkg, ident)
+}
+
+func (r replData) pkgName() string {
+	return strings.Split(r.from, ".")[0]
 }
 
 func newReplData(val string) replData {
@@ -114,8 +122,8 @@ func newReplData(val string) replData {
 	}
 	dest := strings.Split(parts[1], ".")
 	return replData{
-		from:    parts[0],
-		to:   ast.SelectorExpr{
+		from: parts[0],
+		to: ast.SelectorExpr{
 			X:   ast.NewIdent(dest[0]),
 			Sel: ast.NewIdent(dest[1]),
 		},
@@ -138,6 +146,18 @@ func fixFile(c *cli.Context, repls []replData, filename string) error {
 		repls:      repls,
 	}
 	f = ff.Fix(fset, f)
+	for _, imp := range f.Imports {
+		for _, r := range repls {
+			pkg := r.pkgName()
+			impPath, _ := strconv.Unquote(imp.Path.Value)
+			if (imp.Name != nil && pkg == identName(imp.Name)) || (pkg == filepath.Base(impPath)) {
+				if !astutil.UsesImport(f, impPath) {
+					_ = astutil.DeleteImport(fset, f, impPath) ||
+						astutil.DeleteNamedImport(fset, f, pkg, impPath)
+				}
+			}
+		}
+	}
 	var buf bytes.Buffer
 	if err := format.Node(&buf, fset, f); err != nil {
 		return err
@@ -168,7 +188,7 @@ func fix(c *cli.Context) error {
 		return err
 	}
 
-	for _, filename := range c.Args().Tail() {
+	for _, filename := range c.Args() {
 		if err := fixFile(c, repls, filename); err != nil {
 			return err
 		}
@@ -182,15 +202,15 @@ func main() {
 
 	app.Flags = []cli.Flag{
 		&cli.StringSliceFlag{
-			Name:        "replace",
-			Required:true,
+			Name:     "replace",
+			Required: true,
 		},
 		&cli.StringFlag{
-			Name:        "import",
-			Required:true,
+			Name:     "import",
+			Required: true,
 		},
 		&cli.StringFlag{
-			Name:      "dir",
+			Name: "dir",
 		},
 		&cli.BoolFlag{
 			Name: "inplace",
