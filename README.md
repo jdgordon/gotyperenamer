@@ -3,7 +3,8 @@ Go Type Replacer
 
 Problem: "I want to replace my Foo type with external.Foo through my entire codebase (and fix imports too!)"
 
-Solution 1: Use find/replace/manul import fixups
+Solution 1: Use find/replace/manual import fixups
+
 Solution 2: Use this app!
 
 Quick Guide
@@ -20,5 +21,3 @@ Multiple `--replace` items can be provided, each will be run on each file proces
 `--dir` provides the directory to walk. If this is not provided one or more filenames can be provided on the command line instead.
 
 Hope this is useful!
-
-Jonathan
