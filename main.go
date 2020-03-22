@@ -29,7 +29,7 @@ func (f *fixer) applyFunc(c *astutil.Cursor) bool {
 	switch n := c.Node().(type) {
 	case *ast.SelectorExpr:
 		switch c.Parent().(type) {
-		case *ast.StarExpr, *ast.Field:
+		case *ast.StarExpr, *ast.Field, *ast.CompositeLit:
 			if ok, target := f.isReplaceTarget(n); ok {
 				f.needsAdd = true
 				c.Replace(&target)
